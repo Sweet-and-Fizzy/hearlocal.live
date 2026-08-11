@@ -24,11 +24,13 @@ services:
       - NUXT_PUBLIC_SITE_URL=https://aroundhere.live
       - NUXT_OAUTH_GOOGLE_CLIENT_ID=${NUXT_OAUTH_GOOGLE_CLIENT_ID}
       - NUXT_OAUTH_GOOGLE_CLIENT_SECRET=${NUXT_OAUTH_GOOGLE_CLIENT_SECRET}
-      - R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
-      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
-      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
-      - R2_BUCKET_NAME=${R2_BUCKET_NAME}
-      - R2_PUBLIC_URL=${R2_PUBLIC_URL}
+      # NUXT_ prefix is required for Nitro to override runtimeConfig at runtime;
+      # bare R2_* names are ignored because the image is built without them.
+      - NUXT_R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
+      - NUXT_R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+      - NUXT_R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+      - NUXT_R2_BUCKET_NAME=${R2_BUCKET_NAME}
+      - NUXT_R2_PUBLIC_URL=${R2_PUBLIC_URL}
       - NODE_ENV=production
     depends_on:
       db:

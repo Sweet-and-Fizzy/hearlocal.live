@@ -555,6 +555,22 @@ useSeoMeta({
               @error="imagePreviewError = true"
             >
           </div>
+
+          <div
+            v-else-if="form.imageUrl && imagePreviewError"
+            class="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-2 flex gap-2"
+          >
+            <UIcon
+              name="i-heroicons-exclamation-triangle"
+              class="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5"
+            />
+            <div class="text-sm text-amber-800">
+              <p class="font-medium mb-1">
+                This URL doesn't load as an image
+              </p>
+              <p>Paste a direct link to the image file itself (usually ending in .jpg or .png). Links to web pages or Google Drive share pages won't display.</p>
+            </div>
+          </div>
         </div>
       </UCard>
 
