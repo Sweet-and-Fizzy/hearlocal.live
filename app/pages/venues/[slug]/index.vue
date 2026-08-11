@@ -213,7 +213,7 @@ useHead({
             icon="i-heroicons-shield-check"
             size="sm"
             class="text-white/80 hover:text-white"
-            @click="claimModalOpen = true"
+            @click="claimModalOpen = true;"
           >
             Claim Venue
           </UButton>

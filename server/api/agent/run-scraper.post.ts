@@ -7,6 +7,7 @@ import prisma from '../../utils/prisma'
 import { executeScraperCode } from '../../services/agent/executor'
 import { saveScrapedEvents } from '../../scrapers/save-events'
 import { classifyPendingEvents } from '../../scrapers/classify-events'
+import { recordScraperSuccess, recordScraperFailure } from '../../utils/scraper-run-status'
 import type { ScrapedEvent } from '../../scrapers/types'
 
 export default defineEventHandler(async (event) => {
@@ -67,16 +68,13 @@ export default defineEventHandler(async (event) => {
       config.generatedCode as string,
       source.website || (config.url as string) || '',
       'America/New_York', // TODO: Get timezone from venue/region
-      180000 // 3 minute timeout for full scraper runs
+      300000 // 5 minute timeout: detail-page scrapers (e.g. Academy of Music) legitimately run ~3min
     )
 
     if (!result.success) {
       console.error('[RUN-SCRAPER] Execution failed:', result.error)
 
-      await prisma.source.update({
-        where: { id: sourceId },
-        data: { lastRunAt: new Date(), lastRunStatus: 'failed' },
-      })
+      await recordScraperFailure(prisma, sourceId)
 
       return {
         success: false,
@@ -108,10 +106,7 @@ export default defineEventHandler(async (event) => {
       await classifyPendingEvents(prisma)
     }
 
-    await prisma.source.update({
-      where: { id: sourceId },
-      data: { lastRunAt: new Date(), lastRunStatus: 'success' },
-    })
+    await recordScraperSuccess(prisma, sourceId, scrapedEvents.length)
 
     return {
       success: true,

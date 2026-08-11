@@ -87,7 +87,7 @@ async function handleSubmit() {
               color="neutral"
               variant="outline"
               size="sm"
-              @click="open = false"
+              @click="open = false;"
             >
               Cancel
             </UButton>

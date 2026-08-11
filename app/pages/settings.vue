@@ -231,7 +231,7 @@ useSeoMeta({
                   color="neutral"
                   variant="outline"
                   size="xs"
-                  @click="showEmailChange = true"
+                  @click="showEmailChange = true;"
                 >
                   Change
                 </UButton>

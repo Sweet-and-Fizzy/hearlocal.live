@@ -826,12 +826,14 @@ export interface StaleScraperInfo {
   consecutiveFailures: number
   daysSinceLastRun: number | null
   isHardcoded: boolean
+  daysSinceLastEvent?: number | null
 }
 
 export interface ScraperHealthDigest {
   staleScrapers: StaleScraperInfo[] // Haven't run successfully in 3+ days
   failingScrapers: StaleScraperInfo[] // 3+ consecutive failures
   disabledScrapers: StaleScraperInfo[] // isActive = false
+  silentScrapers: StaleScraperInfo[] // Runs report success but return zero events
   adminUrl?: string
 }
 
@@ -839,9 +841,9 @@ export interface ScraperHealthDigest {
  * Send a daily digest of scraper health issues
  */
 export async function notifyScraperHealthDigest(digest: ScraperHealthDigest): Promise<void> {
-  const { staleScrapers, failingScrapers, disabledScrapers, adminUrl } = digest
+  const { staleScrapers, failingScrapers, disabledScrapers, silentScrapers, adminUrl } = digest
 
-  const totalIssues = staleScrapers.length + failingScrapers.length + disabledScrapers.length
+  const totalIssues = staleScrapers.length + failingScrapers.length + disabledScrapers.length + silentScrapers.length
 
   // Don't send if everything is healthy
   if (totalIssues === 0) {
@@ -868,6 +870,14 @@ export async function notifyScraperHealthDigest(digest: ScraperHealthDigest): Pr
       .map(s => `• ${s.name} (${s.consecutiveFailures} failures)${s.isHardcoded ? ' [hardcoded]' : ''}`)
       .join('\n')
     sections.push(`*❌ Failing (3+ consecutive):*\n${failingList}${failingScrapers.length > 5 ? `\n_...and ${failingScrapers.length - 5} more_` : ''}`)
+  }
+
+  if (silentScrapers.length > 0) {
+    const silentList = silentScrapers
+      .slice(0, 5)
+      .map(s => `• ${s.name} (last new event ${s.daysSinceLastEvent ?? '?'}d ago)${s.isHardcoded ? ' [hardcoded]' : ''}`)
+      .join('\n')
+    sections.push(`*🤫 Silent (runs succeed but return zero events):*\n${silentList}${silentScrapers.length > 5 ? `\n_...and ${silentScrapers.length - 5} more_` : ''}`)
   }
 
   if (disabledScrapers.length > 0) {

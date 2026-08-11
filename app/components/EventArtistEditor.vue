@@ -591,7 +591,7 @@ function getSpotifyStatusColor(status?: string): string {
         variant="soft"
         icon="i-heroicons-plus"
         block
-        @click="showSearch = true"
+        @click="showSearch = true;"
       >
         Add Artist
       </UButton>

@@ -140,7 +140,7 @@ export default defineEventHandler(async (event) => {
       testCode,
       source.website,
       'America/New_York', // TODO: Get from venue/region
-      180000 // 3 minute timeout for testing
+      300000 // 5 minute timeout: detail-page scrapers legitimately run ~3min
     )
 
     const executionTime = Date.now() - startTime

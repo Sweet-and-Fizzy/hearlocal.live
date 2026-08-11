@@ -108,8 +108,9 @@ export function validateScraperCode(code: string, scraperType: 'venue' | 'event'
     }
   }
 
-  // Check for browser cleanup
-  if (!code.includes('await browser.close()')) {
+  // Check for browser cleanup — only relevant when the code launches a browser
+  // (fetch+cheerio scrapers have no browser to close)
+  if (code.includes('chromium.launch') && !code.includes('await browser.close()')) {
     errors.push('Code must close the browser (await browser.close())')
   }
 

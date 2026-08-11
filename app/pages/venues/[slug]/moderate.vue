@@ -75,7 +75,7 @@ useSeoMeta({ title: () => `Moderate - ${venue.value?.name || ''}` })
         :color="statusFilter === status ? 'primary' : 'neutral'"
         :variant="statusFilter === status ? 'solid' : 'outline'"
         size="sm"
-        @click="statusFilter = status"
+        @click="statusFilter = status;"
       >
         {{ status.charAt(0) + status.slice(1).toLowerCase() }}
       </UButton>

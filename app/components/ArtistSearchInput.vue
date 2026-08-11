@@ -349,7 +349,7 @@ function moveArtist(index: number, direction: 'up' | 'down') {
         color="primary"
         variant="soft"
         icon="i-heroicons-plus"
-        @click="showSearch = true"
+        @click="showSearch = true;"
       >
         Add Artist
       </UButton>

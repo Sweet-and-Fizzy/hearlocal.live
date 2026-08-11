@@ -921,7 +921,7 @@ function adaptEventForCard(event: any, index: number) {
                 variant="ghost"
                 size="sm"
                 color="neutral"
-                @click="testResults = null"
+                @click="testResults = null;"
               >
                 Clear Results
               </UButton>

@@ -1,0 +1,69 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { recordScraperSuccess, recordScraperFailure } from '../scraper-run-status'
+
+const mockPrisma = {
+  source: {
+    update: vi.fn(),
+  },
+}
+
+describe('scraper-run-status', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  describe('recordScraperSuccess', () => {
+    it('resets failure tracking and records the event count', async () => {
+      mockPrisma.source.update.mockResolvedValue({})
+
+      await recordScraperSuccess(mockPrisma as never, 'source-1', 42)
+
+      expect(mockPrisma.source.update).toHaveBeenCalledWith({
+        where: { id: 'source-1' },
+        data: {
+          lastRunAt: expect.any(Date),
+          lastRunStatus: 'success',
+          lastEventCount: 42,
+          consecutiveFailures: 0,
+          lastFailureAt: null,
+        },
+      })
+    })
+
+    it('records a zero event count as zero, not null', async () => {
+      mockPrisma.source.update.mockResolvedValue({})
+
+      await recordScraperSuccess(mockPrisma as never, 'source-1', 0)
+
+      const data = mockPrisma.source.update.mock.calls[0]![0].data
+      expect(data.lastEventCount).toBe(0)
+    })
+  })
+
+  describe('recordScraperFailure', () => {
+    it('increments consecutiveFailures atomically and returns the new count', async () => {
+      mockPrisma.source.update.mockResolvedValue({ consecutiveFailures: 4 })
+
+      const count = await recordScraperFailure(mockPrisma as never, 'source-1')
+
+      expect(mockPrisma.source.update).toHaveBeenCalledWith({
+        where: { id: 'source-1' },
+        data: {
+          lastRunAt: expect.any(Date),
+          lastRunStatus: 'failed',
+          consecutiveFailures: { increment: 1 },
+          lastFailureAt: expect.any(Date),
+        },
+      })
+      expect(count).toBe(4)
+    })
+
+    it('returns 1 when the update result lacks a count', async () => {
+      mockPrisma.source.update.mockResolvedValue({})
+
+      const count = await recordScraperFailure(mockPrisma as never, 'source-1')
+
+      expect(count).toBe(1)
+    })
+  })
+})

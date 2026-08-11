@@ -796,7 +796,7 @@ useSeoMeta({
             :disabled="currentPage <= 1"
             variant="outline"
             size="sm"
-            @click="currentPage--"
+            @click="currentPage--;"
           >
             Previous
           </UButton>
@@ -804,7 +804,7 @@ useSeoMeta({
             :disabled="currentPage >= pagination.totalPages"
             variant="outline"
             size="sm"
-            @click="currentPage++"
+            @click="currentPage++;"
           >
             Next
           </UButton>
@@ -1106,7 +1106,7 @@ useSeoMeta({
                 color="neutral"
                 variant="ghost"
                 icon="i-heroicons-x-mark"
-                @click="showDuplicatesModal = false"
+                @click="showDuplicatesModal = false;"
               />
             </div>
           </template>

@@ -1100,7 +1100,7 @@ defineExpose({
               <UButton
                 color="primary"
                 size="sm"
-                @click="showMapModal = false"
+                @click="showMapModal = false;"
               >
                 Done
               </UButton>

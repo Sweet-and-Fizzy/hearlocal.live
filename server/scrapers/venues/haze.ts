@@ -1,19 +1,35 @@
 import { HttpScraper } from '../base'
-import type { ScrapedEvent, ScraperConfig, ScrapedArtist } from '../types'
+import type { ScrapedEvent, ScraperConfig } from '../types'
 import * as cheerio from 'cheerio'
+import { slugify } from '../../utils/html'
 
 /**
- * Scraper for Haze Northampton - simple custom PHP site
+ * Scraper for Haze Northampton
  *
- * The site uses server-rendered HTML with no JavaScript loading.
- * Events are displayed on the homepage with links to individual event pages.
+ * The venue replaced its old PHP site with a Next.js site (www subdomain)
+ * in early 2026. The events calendar is server-rendered on the homepage in
+ * a section with id="calendar": a month header ("August 2026"), then day
+ * blocks ("Sunday, Aug 9") each containing events identified by
+ * aria-label="Event details: <title>" with a time span ("7:00 PM").
+ *
+ * IMPORTANT: the server-rendered day headings and times are in UTC, not
+ * Eastern — the site's SSR formats dates without a timezone and the client
+ * only fixes them up in the hydrated desktop grid. "Wednesday, Aug 12,
+ * 12:00 AM" in the scraped HTML is really Tuesday Aug 11 8:00 PM Eastern
+ * (verified against the rendered desktop calendar, 2026-08-11). We therefore
+ * parse date+time as UTC to recover the true instant. If the venue ever
+ * fixes their SSR to render Eastern times, the fixture test will catch the
+ * shift.
+ *
+ * Only the current month is server-rendered (month paging is client-side),
+ * so each daily run covers the month in progress.
  */
 
 export const hazeConfig: ScraperConfig = {
   id: 'haze',
   name: 'Haze Northampton',
   venueSlug: 'haze',
-  url: 'https://hazenorthampton.org/',
+  url: 'https://www.hazenorthampton.org/',
   enabled: true,
   schedule: '0 6,14 * * *',
   category: 'VENUE',
@@ -22,142 +38,102 @@ export const hazeConfig: ScraperConfig = {
   defaultAgeRestriction: 'TWENTY_ONE_PLUS', // Bar venue
 }
 
+const MONTHS: Record<string, number> = {
+  Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6,
+  Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12,
+}
+
+function pad(n: number): string {
+  return String(n).padStart(2, '0')
+}
+
+/**
+ * Parse the server-rendered calendar section of the Haze homepage.
+ * Exported for testing.
+ */
+export function parseHazeCalendar(html: string): ScrapedEvent[] {
+  const $ = cheerio.load(html)
+  const calendar = $('#calendar')
+  if (calendar.length === 0) return []
+
+  // Month header, e.g. "August 2026"
+  const monthHeader = calendar
+    .find('p')
+    .filter((_, el) => /^[A-Z][a-z]+ \d{4}$/.test($(el).text().trim()))
+    .first()
+    .text()
+    .trim()
+  const headerMatch = monthHeader.match(/^([A-Z][a-z]+) (\d{4})$/)
+  if (!headerMatch) return []
+  const year = parseInt(headerMatch[2]!, 10)
+
+  const events: ScrapedEvent[] = []
+
+  // The mobile list view contains one block per day; the desktop grid
+  // duplicates every event, so we only parse the mobile container.
+  const mobileList = calendar.find('div[class*="md:hidden"]').first()
+
+  mobileList.children('div').each((_, dayEl) => {
+    const $day = $(dayEl)
+
+    // Day heading, e.g. "Sunday, Aug 9"
+    const heading = $day.find('p').first().text().trim()
+    const dayMatch = heading.match(/([A-Z][a-z]{2})\s+(\d{1,2})$/)
+    if (!dayMatch) return
+    const month = MONTHS[dayMatch[1]!]
+    if (!month) return
+    const day = parseInt(dayMatch[2]!, 10)
+
+    $day.find('[aria-label^="Event details:"]').each((_, evEl) => {
+      const $ev = $(evEl)
+      const title = ($ev.attr('aria-label') || '')
+        .replace(/^Event details:\s*/, '')
+        .trim()
+      if (!title) return
+
+      // Time span, e.g. "7:00 PM"; default to 23:00 UTC (~7 PM Eastern) when absent
+      const timeText = $ev
+        .find('span')
+        .filter((_, s) => /^\d{1,2}:\d{2}\s*(AM|PM)$/i.test($(s).text().trim()))
+        .first()
+        .text()
+        .trim()
+      let hour = 23
+      let minute = 0
+      const timeMatch = timeText.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+      if (timeMatch) {
+        hour = parseInt(timeMatch[1]!, 10)
+        minute = parseInt(timeMatch[2]!, 10)
+        const ampm = timeMatch[3]!.toUpperCase()
+        if (ampm === 'PM' && hour !== 12) hour += 12
+        if (ampm === 'AM' && hour === 12) hour = 0
+      }
+
+      const dateStr = `${year}-${pad(month)}-${pad(day)}`
+      // The scraped date+time is UTC (see module comment)
+      const startsAt = new Date(`${dateStr}T${pad(hour)}:${pad(minute)}:00Z`)
+
+      // Note: calendar flyer images are pre-signed S3 URLs that expire within
+      // an hour, so we deliberately do not store imageUrl.
+      events.push({
+        title,
+        startsAt,
+        sourceUrl: 'https://www.hazenorthampton.org/#calendar',
+        sourceEventId: `haze-${dateStr}-${slugify(title)}`,
+      })
+    })
+  })
+
+  return events
+}
+
 export class HazeScraper extends HttpScraper {
   constructor() {
     super(hazeConfig)
   }
 
   protected async parseEvents(html: string): Promise<ScrapedEvent[]> {
-    const $ = cheerio.load(html)
-    const events: ScrapedEvent[] = []
-    const seenIds = new Set<string>()
-
-    // Select events from the events-list (skip featured duplicate)
-    $('.events-list .event-item').each((_, el) => {
-      const $el = $(el)
-
-      // Get event ID from element ID (e.g., "event-52")
-      const elementId = $el.attr('id')
-      const eventId = elementId?.replace('event-', '') || ''
-
-      // Skip duplicates (featured show may duplicate an event)
-      if (!eventId || seenIds.has(eventId)) return
-      seenIds.add(eventId)
-
-      // Get event link for source URL
-      const eventLink = $el.find('a.event-link-wrapper').attr('href')
-      const sourceUrl = eventLink
-        ? eventLink.startsWith('http')
-          ? eventLink
-          : `https://hazenorthampton.org/${eventLink.replace(/^\//, '')}`
-        : `https://hazenorthampton.org/event.php?id=${eventId}`
-
-      // Parse date from h4 (format: "November 23, 2025")
-      const dateText = $el.find('.event-info h4').text().trim()
-      const startsAt = this.parseEventDate(dateText)
-      if (!startsAt) return
-
-      // Skip past events
-      if (startsAt < new Date()) return
-
-      // Parse event note (contains title + artists separated by <br />)
-      const noteHtml = $el.find('.event-note').html() || ''
-      const { title, description, artists } = this.parseEventNote(noteHtml)
-
-      // Get poster image if available - look for any img inside the event item
-      const imageSrc = $el.find('img[src*="uploads/posters"]').attr('src') || $el.find('img').attr('src')
-      const imageUrl = imageSrc ? `https://hazenorthampton.org/${imageSrc.replace(/^\//, '')}` : undefined
-
-      // Generate stable event ID
-      const dateStr = startsAt.toISOString().split('T')[0]
-      const sourceEventId = `haze-${dateStr}-${eventId}`
-
-      events.push({
-        title: title || 'Live Music at Haze',
-        description,
-        startsAt,
-        sourceUrl,
-        sourceEventId,
-        imageUrl,
-        artists: artists.length > 0 ? artists : undefined,
-      })
-    })
-
-    return events
-  }
-
-  /**
-   * Parse date string like "November 23, 2025" into a Date object
-   * Default to 8 PM since the site doesn't provide times
-   */
-  private parseEventDate(dateText: string): Date | null {
-    try {
-      // Parse the date string
-      const date = new Date(dateText)
-      if (isNaN(date.getTime())) return null
-
-      // Default to 8 PM since no time is provided
-      date.setHours(20, 0, 0, 0)
-
-      return date
-    } catch {
-      return null
-    }
-  }
-
-  /**
-   * Parse event note HTML which contains title and artists separated by <br />
-   *
-   * Example:
-   * "Live Music Sunday!<br />
-   * Sable Island Pony<br />
-   * Alyssa Kai<br />
-   * Erin Morse"
-   *
-   * Returns artists as well as an improved title and description.
-   * If the title is generic ("Live Music Sunday!", "Live Music at Haze"),
-   * we use the artist names as the title instead.
-   */
-  private parseEventNote(html: string): { title: string; description: string | undefined; artists: ScrapedArtist[] } {
-    // Split on <br /> or <br>
-    const lines = html
-      .split(/<br\s*\/?>/i)
-      .map((line) => line.replace(/<[^>]+>/g, '').trim())
-      .filter((line) => line.length > 0)
-
-    const rawTitle = lines[0] || ''
-
-    // Remaining lines are artist names
-    const artistNames = lines
-      .slice(1)
-      .filter((name) => name.length > 0 && !name.startsWith('(')) // Skip parenthetical notes
-
-    const artists: ScrapedArtist[] = artistNames.map((name, index) => ({
-      name,
-      isHeadliner: index === 0,
-    }))
-
-    // Check if title is generic
-    const isGenericTitle = /^live music/i.test(rawTitle)
-
-    // If generic title but we have artist names, use artists as title
-    let title: string
-    let description: string | undefined
-
-    if (isGenericTitle && artistNames.length > 0) {
-      // Use artist names as the title
-      title = artistNames.join(' / ')
-      // Include the original title as part of description
-      description = `${rawTitle} featuring ${artistNames.join(', ')}`
-    } else if (artistNames.length > 0) {
-      // Non-generic title, but include artist list in description
-      title = rawTitle
-      description = `Featuring: ${artistNames.join(', ')}`
-    } else {
-      title = rawTitle
-      description = undefined
-    }
-
-    return { title, description, artists }
+    const now = new Date()
+    return parseHazeCalendar(html).filter(e => e.startsAt >= now)
   }
 }

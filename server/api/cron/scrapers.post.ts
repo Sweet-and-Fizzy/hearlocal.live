@@ -14,6 +14,7 @@ import { verifyCronAuth } from '../../utils/cron-auth'
 import { executeScraperCode } from '../../services/agent/executor'
 import { saveScrapedEvents, detectSuspiciousDuplicates, handleSuspiciousDuplicates } from '../../scrapers/save-events'
 import { classifyPendingEvents } from '../../scrapers/classify-events'
+import { recordScraperSuccess, recordScraperFailure } from '../../utils/scraper-run-status'
 import type { ScrapedEvent } from '../../scrapers/types'
 
 // Import hardcoded scrapers
@@ -33,6 +34,7 @@ import { LuthiersScraper } from '../../scrapers/venues/luthiers'
 import { FameScraper } from '../../scrapers/venues/fame'
 import { DailyOperationScraper } from '../../scrapers/venues/daily-operation'
 import { TheHeavyCultureCoopScraper } from '../../scrapers/venues/the-heavy-culture-coop'
+import { DoubleEdgeTheatreScraper } from '../../scrapers/venues/double-edge-theatre'
 
 interface ScraperResult {
   name: string
@@ -43,6 +45,7 @@ interface ScraperResult {
   eventsCanceled: number
   duration: number
   error?: string
+  consecutiveFailures?: number
 }
 
 export default defineEventHandler(async (event) => {
@@ -70,6 +73,7 @@ export default defineEventHandler(async (event) => {
     new FameScraper(),
     new DailyOperationScraper(),
     new TheHeavyCultureCoopScraper(),
+    new DoubleEdgeTheatreScraper(),
   ]
 
   for (const scraper of hardcodedScrapers) {
@@ -122,17 +126,7 @@ export default defineEventHandler(async (event) => {
             }
           }
 
-          // Update source status on success
-          await prisma.source.update({
-            where: { id: source.id },
-            data: {
-              lastRunAt: new Date(),
-              lastRunStatus: 'success',
-              lastEventCount: result.events.length,
-              consecutiveFailures: 0,
-              lastFailureAt: null,
-            },
-          })
+          await recordScraperSuccess(prisma, source.id, result.events.length)
 
           results.push({
             name: scraper.config.name,
@@ -149,17 +143,7 @@ export default defineEventHandler(async (event) => {
         const source = await prisma.source.findUnique({
           where: { slug: scraper.config.id },
         })
-        if (source) {
-          await prisma.source.update({
-            where: { id: source.id },
-            data: {
-              lastRunAt: new Date(),
-              lastRunStatus: 'failed',
-              consecutiveFailures: (source.consecutiveFailures || 0) + 1,
-              lastFailureAt: new Date(),
-            },
-          })
-        }
+        const failures = source ? await recordScraperFailure(prisma, source.id) : undefined
 
         results.push({
           name: scraper.config.name,
@@ -170,6 +154,7 @@ export default defineEventHandler(async (event) => {
           eventsCanceled: 0,
           duration: Date.now() - scraperStart,
           error: result.errors?.[0] || 'Unknown error',
+          consecutiveFailures: failures,
         })
       }
     } catch (error) {
@@ -177,17 +162,7 @@ export default defineEventHandler(async (event) => {
       const source = await prisma.source.findUnique({
         where: { slug: scraper.config.id },
       })
-      if (source) {
-        await prisma.source.update({
-          where: { id: source.id },
-          data: {
-            lastRunAt: new Date(),
-            lastRunStatus: 'failed',
-            consecutiveFailures: (source.consecutiveFailures || 0) + 1,
-            lastFailureAt: new Date(),
-          },
-        })
-      }
+      const failures = source ? await recordScraperFailure(prisma, source.id) : undefined
 
       results.push({
         name: scraper.config.name,
@@ -198,6 +173,7 @@ export default defineEventHandler(async (event) => {
         eventsCanceled: 0,
         duration: Date.now() - scraperStart,
         error: error instanceof Error ? error.message : 'Unknown error',
+        consecutiveFailures: failures,
       })
     }
   }
@@ -237,7 +213,8 @@ export default defineEventHandler(async (event) => {
         config.generatedCode as string,
         (source.website || config.url || '') as string,
         timezone,
-        180000
+        // 5 minutes: detail-page scrapers (e.g. Academy of Music) legitimately run ~3min
+        300000
       )
 
       if (result.success) {
@@ -267,10 +244,7 @@ export default defineEventHandler(async (event) => {
           }
         }
 
-        await prisma.source.update({
-          where: { id: source.id },
-          data: { lastRunAt: new Date(), lastRunStatus: 'success' },
-        })
+        await recordScraperSuccess(prisma, source.id, events.length)
 
         results.push({
           name: source.name,
@@ -282,10 +256,7 @@ export default defineEventHandler(async (event) => {
           duration: Date.now() - scraperStart,
         })
       } else {
-        await prisma.source.update({
-          where: { id: source.id },
-          data: { lastRunAt: new Date(), lastRunStatus: 'failed' },
-        })
+        const failures = await recordScraperFailure(prisma, source.id)
 
         results.push({
           name: source.name,
@@ -296,9 +267,12 @@ export default defineEventHandler(async (event) => {
           eventsCanceled: 0,
           duration: Date.now() - scraperStart,
           error: result.error || 'Unknown error',
+          consecutiveFailures: failures,
         })
       }
     } catch (error) {
+      const failures = await recordScraperFailure(prisma, source.id).catch(() => undefined)
+
       results.push({
         name: source.name,
         success: false,
@@ -308,6 +282,7 @@ export default defineEventHandler(async (event) => {
         eventsCanceled: 0,
         duration: Date.now() - scraperStart,
         error: error instanceof Error ? error.message : 'Unknown error',
+        consecutiveFailures: failures,
       })
     }
   }
@@ -378,7 +353,7 @@ export default defineEventHandler(async (event) => {
         sourceName: failure.name,
         venueName: failure.name,
         error: failure.error || 'Unknown error',
-        consecutiveFailures: 1, // We don't track this yet, but could add
+        consecutiveFailures: failure.consecutiveFailures || 1,
         lastSuccessAt: undefined,
       })
     } catch (notifyError) {

@@ -66,7 +66,7 @@ async function submit() {
               color="neutral"
               variant="ghost"
               size="sm"
-              @click="open = false"
+              @click="open = false;"
             />
           </div>
         </template>
@@ -103,7 +103,7 @@ async function submit() {
             <UButton
               color="neutral"
               variant="outline"
-              @click="open = false"
+              @click="open = false;"
             >
               Cancel
             </UButton>

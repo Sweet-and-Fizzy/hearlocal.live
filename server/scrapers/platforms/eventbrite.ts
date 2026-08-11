@@ -5,11 +5,101 @@ export interface EventbriteScraperConfig extends ScraperConfig {
   organizerId: string
 }
 
+interface EventbriteListItem {
+  id: string
+  url: string
+  title?: string
+  summary?: string
+}
+
+interface EventLdJson {
+  '@type'?: string | string[]
+  name?: string
+  description?: string
+  startDate?: string
+  endDate?: string
+  image?: string | { url?: string }
+  offers?: unknown
+}
+
 /**
- * Base scraper for Eventbrite organizer pages.
+ * Find the schema.org Event object in a page's LD+JSON blocks
+ * (handles arrays and @graph nesting). Exported for testing.
+ */
+export function findEventLd(blocks: unknown[]): EventLdJson | null {
+  const flat: unknown[] = []
+  const visit = (node: unknown) => {
+    if (!node || typeof node !== 'object') return
+    if (Array.isArray(node)) {
+      node.forEach(visit)
+      return
+    }
+    flat.push(node)
+    const graph = (node as { '@graph'?: unknown })['@graph']
+    if (graph) visit(graph)
+  }
+  blocks.forEach(visit)
+
+  return (
+    (flat.find((item) => {
+      const type = (item as EventLdJson)['@type']
+      const types = Array.isArray(type) ? type : [type]
+      return types.some(t => typeof t === 'string' && t.includes('Event'))
+    }) as EventLdJson | undefined) || null
+  )
+}
+
+/**
+ * Format an LD+JSON offers value into a display price. Exported for testing.
+ */
+export function formatOffersPrice(offers: unknown): string | undefined {
+  const list = Array.isArray(offers) ? offers : offers ? [offers] : []
+  const prices: number[] = []
+  for (const offer of list) {
+    if (!offer || typeof offer !== 'object') continue
+    const o = offer as { price?: unknown; lowPrice?: unknown; highPrice?: unknown }
+    for (const raw of [o.price, o.lowPrice, o.highPrice]) {
+      const n = typeof raw === 'string' ? parseFloat(raw) : typeof raw === 'number' ? raw : NaN
+      if (!isNaN(n)) prices.push(n)
+    }
+  }
+  if (prices.length === 0) return undefined
+  const min = Math.min(...prices)
+  const max = Math.max(...prices)
+  if (max === 0) return 'Free'
+  if (min === max) return `$${min}`
+  return `$${min}-$${max}`
+}
+
+/**
+ * Detect an age restriction mention in page text. Exported for testing.
+ */
+export function parseAgeRestrictionFromText(
+  text: string
+): 'ALL_AGES' | 'EIGHTEEN_PLUS' | 'TWENTY_ONE_PLUS' | undefined {
+  if (/\b21\+|\btwenty[- ]?one\s*\+|21\s*and\s*over|ages?\s*21/i.test(text)) {
+    return 'TWENTY_ONE_PLUS'
+  }
+  if (/\b18\+|\beighteen\s*\+|18\s*and\s*over|ages?\s*18/i.test(text)) {
+    return 'EIGHTEEN_PLUS'
+  }
+  if (/\ball\s*ages/i.test(text)) {
+    return 'ALL_AGES'
+  }
+  return undefined
+}
+
+/**
+ * Base scraper for Eventbrite organizers.
  *
- * Eventbrite embeds event data as JSON in window.__SERVER_DATA__,
- * which we extract and parse rather than scraping the DOM.
+ * Eventbrite's organizer pages no longer embed usable event data
+ * (the old window.__SERVER_DATA__ path died in their 2026 React rewrite,
+ * and the /org/<id>/showmore JSON endpoint now strips dates). So we:
+ *   1. list future events via the /org/<id>/showmore JSON endpoint
+ *      (ids + urls are still populated), then
+ *   2. visit each event page with Playwright and read its schema.org
+ *      Event LD+JSON for dates, image, and price, plus the page text
+ *      for age-restriction mentions.
  */
 export abstract class EventbriteScraper extends PlaywrightScraper {
   protected organizerId: string
@@ -23,36 +113,16 @@ export abstract class EventbriteScraper extends PlaywrightScraper {
   }
 
   protected async parseEvents(_html: string): Promise<ScrapedEvent[]> {
-    if (!this.page) return []
+    const listing = await this.fetchFutureEventList()
+    console.log(`[${this.config.name}] Organizer has ${listing.length} future events`)
 
-    // Extract the __SERVER_DATA__ JSON from the page
-    const serverData = await this.page.evaluate(() => {
-      // @ts-expect-error - Eventbrite injects this global
-      return window.__SERVER_DATA__
-    })
-
-    if (!serverData) {
-      console.log(`[${this.config.name}] No __SERVER_DATA__ found`)
-      return []
-    }
-
-    // Navigate the data structure to find events
-    // Structure: serverData.components[].events[] or similar
-    const events = this.extractEventsFromServerData(serverData)
-
-    console.log(`[${this.config.name}] Found ${events.length} events in __SERVER_DATA__`)
-
-    // For each event, we may need to fetch the detail page to get age restriction
     const scrapedEvents: ScrapedEvent[] = []
-
-    for (const event of events) {
+    for (const item of listing) {
       try {
-        const scrapedEvent = await this.parseEventData(event)
-        if (scrapedEvent) {
-          scrapedEvents.push(scrapedEvent)
-        }
+        const scrapedEvent = await this.parseEventDetail(item)
+        if (scrapedEvent) scrapedEvents.push(scrapedEvent)
       } catch (error) {
-        console.error(`[${this.config.name}] Error parsing event:`, error)
+        console.error(`[${this.config.name}] Error parsing event ${item.url}:`, error)
       }
     }
 
@@ -60,148 +130,93 @@ export abstract class EventbriteScraper extends PlaywrightScraper {
   }
 
   /**
-   * Extract events array from Eventbrite's __SERVER_DATA__ structure
+   * List the organizer's future events from the showmore JSON endpoint.
    */
-  protected extractEventsFromServerData(serverData: Record<string, unknown>): Record<string, unknown>[] {
-    const events: Record<string, unknown>[] = []
-
-    // Try to find events in the data structure
-    // Eventbrite's structure can vary, so we search for it
-    const findEvents = (obj: unknown, depth = 0): void => {
-      if (depth > 10 || !obj || typeof obj !== 'object') return
-
-      if (Array.isArray(obj)) {
-        for (const item of obj) {
-          // Check if this looks like an event object
-          if (item && typeof item === 'object' && 'id' in item && 'name' in item && 'start' in item) {
-            events.push(item as Record<string, unknown>)
-          } else {
-            findEvents(item, depth + 1)
-          }
+  protected async fetchFutureEventList(): Promise<EventbriteListItem[]> {
+    const results: EventbriteListItem[] = []
+    for (let pageNum = 1; pageNum <= 10; pageNum++) {
+      const response = await fetch(
+        `https://www.eventbrite.com/org/${this.organizerId}/showmore/?type=future&page=${pageNum}`,
+        {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+          },
         }
-      } else {
-        for (const value of Object.values(obj)) {
-          findEvents(value, depth + 1)
-        }
+      )
+      if (!response.ok) break
+      const json = (await response.json()) as {
+        data?: { events?: Array<Record<string, unknown>>; has_next_page?: boolean }
       }
+      for (const event of json.data?.events || []) {
+        const id = event.id as string | undefined
+        const url = event.url as string | undefined
+        if (!id || !url) continue
+        results.push({
+          id,
+          url,
+          title: (event.name as { text?: string } | undefined)?.text,
+          summary: event.summary as string | undefined,
+        })
+      }
+      if (!json.data?.has_next_page) break
     }
-
-    findEvents(serverData)
-    return events
+    return results
   }
 
   /**
-   * Parse a single event from Eventbrite's data structure
+   * Visit one event page and build a ScrapedEvent from its LD+JSON.
    */
-  protected async parseEventData(eventData: Record<string, unknown>): Promise<ScrapedEvent | null> {
+  protected async parseEventDetail(item: EventbriteListItem): Promise<ScrapedEvent | null> {
+    if (!this.page) return null
+
+    await this.page.goto(item.url, { waitUntil: 'domcontentloaded', timeout: 20000 })
     try {
-      // Extract name
-      const nameObj = eventData.name as { text?: string } | undefined
-      const title = nameObj?.text
-      if (!title) return null
+      await this.page.waitForSelector('script[type="application/ld+json"]', { timeout: 10000 })
+    } catch {
+      // fall through — evaluate below handles missing blocks
+    }
 
-      // Extract URL
-      const eventUrl = eventData.url as string | undefined
-      if (!eventUrl) return null
+    const pageData = await this.page.evaluate(() => {
+      const blocks: unknown[] = []
+      document.querySelectorAll('script[type="application/ld+json"]').forEach((script) => {
+        try {
+          blocks.push(JSON.parse(script.textContent || ''))
+        } catch {
+          // skip malformed blocks
+        }
+      })
+      return { blocks, bodyText: document.body.innerText }
+    })
 
-      // Extract event ID
-      const eventId = eventData.id as string | undefined
-
-      // Extract start time
-      const startObj = eventData.start as { utc?: string; local?: string } | undefined
-      if (!startObj?.utc) return null
-      const startsAt = new Date(startObj.utc)
-      if (isNaN(startsAt.getTime())) return null
-
-      // Skip past events
-      if (startsAt < new Date()) {
-        return null
-      }
-
-      // Extract end time
-      const endObj = eventData.end as { utc?: string } | undefined
-      const endsAt = endObj?.utc ? new Date(endObj.utc) : undefined
-
-      // Extract price - handle "Free" or price range like "$17.85"
-      const isFree = eventData.is_free as boolean | undefined
-      const priceRange = eventData.price_range as string | undefined
-      const coverCharge = isFree ? 'Free' : priceRange || undefined
-
-      // Extract image
-      const logoObj = eventData.logo as { url?: string } | undefined
-      const imageUrl = logoObj?.url
-
-      // Extract description/summary - it's a string directly, not an object
-      const description = eventData.summary as string | undefined
-
-      // Fetch event detail page to get age restriction (only for future events)
-      const ageRestriction = await this.fetchAgeRestriction(eventUrl)
-
-      return {
-        title,
-        description,
-        startsAt,
-        endsAt: endsAt && !isNaN(endsAt.getTime()) ? endsAt : undefined,
-        sourceUrl: eventUrl,
-        sourceEventId: eventId ? `eventbrite-${eventId}` : undefined,
-        coverCharge,
-        imageUrl,
-        ticketUrl: eventUrl,
-        ageRestriction,
-      }
-    } catch (error) {
-      console.error(`[${this.config.name}] Error parsing event data:`, error)
+    const eventLd = findEventLd(pageData.blocks)
+    if (!eventLd?.startDate) {
+      console.log(`[${this.config.name}] No Event LD+JSON on ${item.url}`)
       return null
     }
-  }
 
-  /**
-   * Fetch event detail page to extract age restriction
-   */
-  protected async fetchAgeRestriction(eventUrl: string): Promise<'ALL_AGES' | 'EIGHTEEN_PLUS' | 'TWENTY_ONE_PLUS' | undefined> {
-    if (!this.page) return undefined
+    const startsAt = new Date(eventLd.startDate)
+    if (isNaN(startsAt.getTime()) || startsAt < new Date()) return null
 
-    try {
-      // Navigate to event page
-      await this.page.goto(eventUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+    const endsAt = eventLd.endDate ? new Date(eventLd.endDate) : undefined
+    const imageUrl =
+      typeof eventLd.image === 'string' ? eventLd.image : eventLd.image?.url
 
-      // Look for age restriction in page content
-      const pageText = await this.page.evaluate(() => document.body.innerText)
-
-      // Check for common age restriction patterns
-      if (/\b21\+|\btwenty[- ]?one\s*\+|21\s*and\s*over|ages?\s*21/i.test(pageText)) {
-        return 'TWENTY_ONE_PLUS'
-      }
-      if (/\b18\+|\beighteen\s*\+|18\s*and\s*over|ages?\s*18/i.test(pageText)) {
-        return 'EIGHTEEN_PLUS'
-      }
-      if (/\ball\s*ages/i.test(pageText)) {
-        return 'ALL_AGES'
-      }
-
-      return undefined
-    } catch (error) {
-      console.error(`[${this.config.name}] Error fetching age restriction from ${eventUrl}:`, error)
-      return undefined
+    return {
+      title: item.title || eventLd.name || 'Untitled event',
+      description: item.summary || eventLd.description,
+      startsAt,
+      endsAt: endsAt && !isNaN(endsAt.getTime()) ? endsAt : undefined,
+      sourceUrl: item.url,
+      sourceEventId: `eventbrite-${item.id}`,
+      coverCharge: formatOffersPrice(eventLd.offers),
+      imageUrl,
+      ticketUrl: item.url,
+      ageRestriction: parseAgeRestrictionFromText(pageData.bodyText),
     }
   }
 
-  protected override async waitForContent(): Promise<void> {
-    if (!this.page) return
-
-    try {
-      // Wait for the page to have __SERVER_DATA__
-      await this.page.waitForFunction(
-        () => typeof (window as unknown as { __SERVER_DATA__: unknown }).__SERVER_DATA__ !== 'undefined',
-        { timeout: 15000 }
-      )
-    } catch {
-      // Fallback wait
-      await this.page.waitForTimeout(5000)
-    }
-  }
-
-  // Override to use domcontentloaded since we're reading JS data, not waiting for full render
+  // Organizer page HTML itself is unused; keep navigation light.
   protected override getWaitUntilStrategy(): 'networkidle' | 'domcontentloaded' | 'load' | 'commit' {
     return 'domcontentloaded'
   }

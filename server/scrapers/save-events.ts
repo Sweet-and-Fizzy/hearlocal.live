@@ -69,17 +69,18 @@ export async function saveEvent(
           title: cleanedTitle,
           description: descriptions.description,
           descriptionHtml: descriptions.descriptionHtml,
-          imageUrl: scrapedEvent.imageUrl,
           startsAt: scrapedEvent.startsAt,
           endsAt: scrapedEvent.endsAt,
           doorsAt: scrapedEvent.doorsAt,
-          coverCharge: scrapedEvent.coverCharge,
-          // Refresh age only when the scraper parsed a specific restriction this run, so
-          // we never clobber an existing value (venue default or moderator edit) with a blank.
+          // Refresh image/cover/ticket/age only when the scraper produced a value this
+          // run, so we never clobber existing data (community-submitted image, venue
+          // default, or moderator edit) with a blank.
+          ...(scrapedEvent.imageUrl ? { imageUrl: scrapedEvent.imageUrl } : {}),
+          ...(scrapedEvent.coverCharge ? { coverCharge: scrapedEvent.coverCharge } : {}),
+          ...(scrapedEvent.ticketUrl ? { ticketUrl: scrapedEvent.ticketUrl } : {}),
           ...(scrapedEvent.ageRestriction
             ? { ageRestriction: scrapedEvent.ageRestriction }
             : {}),
-          ticketUrl: scrapedEvent.ticketUrl,
           sourceUrl: scrapedEvent.sourceUrl,
           genres: scrapedEvent.genres || [],
           // If event reappears after being marked canceled, uncancel it
@@ -141,15 +142,15 @@ export async function saveEvent(
           title: cleanedTitle,
           description: canonicalDescriptions.description,
           descriptionHtml: canonicalDescriptions.descriptionHtml,
-          imageUrl: scrapedEvent.imageUrl,
-          coverCharge: scrapedEvent.coverCharge,
-          // Refresh age only when the scraper parsed a specific restriction this run.
-          // Omitting it otherwise leaves the existing value (set from the venue default
-          // at create time, or hand-corrected by a moderator) untouched.
+          // Refresh image/cover/ticket/age only when the scraper produced a value this
+          // run. Omitting them otherwise leaves the existing value (community-submitted
+          // image, venue default, or moderator edit) untouched.
+          ...(scrapedEvent.imageUrl ? { imageUrl: scrapedEvent.imageUrl } : {}),
+          ...(scrapedEvent.coverCharge ? { coverCharge: scrapedEvent.coverCharge } : {}),
+          ...(scrapedEvent.ticketUrl ? { ticketUrl: scrapedEvent.ticketUrl } : {}),
           ...(scrapedEvent.ageRestriction
             ? { ageRestriction: scrapedEvent.ageRestriction }
             : {}),
-          ticketUrl: scrapedEvent.ticketUrl,
           genres: scrapedEvent.genres || [],
           updatedAt: new Date(),
         },
