@@ -1,6 +1,7 @@
 import { prisma } from '../../../utils/prisma'
 import { slugify } from '../../../utils/html'
 import { fromZonedTime } from 'date-fns-tz'
+import { parseEndsAt } from '../../../utils/event-times'
 
 export default defineEventHandler(async (event) => {
   const session = await getUserSession(event)
@@ -50,7 +51,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody(event)
-  const { title, date, showTime, doorsTime, coverCharge, ageRestriction, ticketUrl, description, imageUrl, sourceUrl, artists } = body
+  const { title, date, showTime, doorsTime, endTime, coverCharge, ageRestriction, ticketUrl, description, imageUrl, sourceUrl, artists } = body
 
   if (!title?.trim()) {
     throw createError({ statusCode: 400, message: 'Title is required' })
@@ -65,6 +66,7 @@ export default defineEventHandler(async (event) => {
   const timezone = existing.region.timezone || 'America/New_York'
   const startsAt = fromZonedTime(`${date}T${showTime}:00`, timezone)
   const doorsAt = doorsTime ? fromZonedTime(`${date}T${doorsTime}:00`, timezone) : null
+  const endsAt = parseEndsAt(date, showTime, endTime, timezone)
 
   const validAgeRestrictions = ['ALL_AGES', 'EIGHTEEN_PLUS', 'TWENTY_ONE_PLUS']
   const finalAgeRestriction = ageRestriction && validAgeRestrictions.includes(ageRestriction)
@@ -77,6 +79,7 @@ export default defineEventHandler(async (event) => {
     description: description?.trim() || null,
     startsAt,
     doorsAt,
+    endsAt,
     coverCharge: coverCharge?.trim() || null,
     ticketUrl: ticketUrl?.trim() || null,
     imageUrl: imageUrl?.trim() || null,

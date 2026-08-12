@@ -22,6 +22,7 @@ const form = reactive({
   date: '',
   showTime: '',
   doorsTime: '',
+  endTime: '',
   venueId: null as string | null,
   locationName: '',
   locationAddress: '',
@@ -62,6 +63,7 @@ async function loadSubmission() {
     form.date = data.date
     form.showTime = data.showTime
     form.doorsTime = data.doorsTime
+    form.endTime = data.endTime || ''
     form.venueId = data.venueId
     form.locationName = data.locationName
     form.locationAddress = data.locationAddress
@@ -156,6 +158,7 @@ async function handleSubmit() {
           date: form.date,
           showTime: form.showTime,
           doorsTime: form.doorsTime || undefined,
+          endTime: form.endTime || undefined,
           coverCharge: form.coverCharge || undefined,
           ageRestriction: form.ageRestriction,
           ticketUrl: form.ticketUrl || undefined,
@@ -341,7 +344,7 @@ useSeoMeta({
           </div>
 
           <!-- Date and Times -->
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">
                 Date <span class="text-red-500">*</span>
@@ -366,6 +369,14 @@ useSeoMeta({
               <label class="block text-sm font-medium text-gray-700 mb-1">Doors Time</label>
               <UInput
                 v-model="form.doorsTime"
+                type="time"
+                size="sm"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">End Time</label>
+              <UInput
+                v-model="form.endTime"
                 type="time"
                 size="sm"
               />

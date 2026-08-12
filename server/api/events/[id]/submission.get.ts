@@ -23,6 +23,7 @@ export default defineEventHandler(async (event) => {
       description: true,
       startsAt: true,
       doorsAt: true,
+      endsAt: true,
       coverCharge: true,
       ageRestriction: true,
       ticketUrl: true,
@@ -80,6 +81,12 @@ export default defineEventHandler(async (event) => {
     doorsTime = format(zonedDoors, 'HH:mm')
   }
 
+  let endTime: string | null = null
+  if (submission.endsAt) {
+    const zonedEnd = toZonedTime(submission.endsAt, timezone)
+    endTime = format(zonedEnd, 'HH:mm')
+  }
+
   return {
     id: submission.id,
     reviewStatus: submission.reviewStatus,
@@ -88,6 +95,7 @@ export default defineEventHandler(async (event) => {
     date,
     showTime,
     doorsTime: doorsTime || '',
+    endTime: endTime || '',
     venueId: submission.venueId,
     venueName: submission.venue?.name || null,
     locationName: submission.locationName || '',

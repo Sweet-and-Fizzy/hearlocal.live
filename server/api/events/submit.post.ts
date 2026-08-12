@@ -3,6 +3,7 @@ import { generateSlug, slugify } from '../../utils/html'
 import { findNearestRegion } from '../../utils/find-nearest-region'
 import { geocodeAddress } from '../../services/geocoding'
 import { getOrCreateCommunitySource } from '../../utils/community-source'
+import { parseEndsAt } from '../../utils/event-times'
 import { notifyEventSubmission } from '../../services/notifications'
 import { sendEventSubmissionAdminEmail, sendVenueModeratorSubmissionEmail } from '../../utils/email'
 import { fromZonedTime } from 'date-fns-tz'
@@ -55,7 +56,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody(event)
-  const { title, date, showTime, doorsTime, venueId, locationName, locationAddress, locationLat, locationLng, coverCharge, ageRestriction, ticketUrl, description, imageUrl, sourceUrl, artists, repeat } = body
+  const { title, date, showTime, doorsTime, endTime, venueId, locationName, locationAddress, locationLat, locationLng, coverCharge, ageRestriction, ticketUrl, description, imageUrl, sourceUrl, artists, repeat } = body
 
   // Validate required fields
   if (!title?.trim()) {
@@ -177,6 +178,7 @@ export default defineEventHandler(async (event) => {
     // Parse date and time into a proper DateTime
     const startsAt = fromZonedTime(`${dateStr}T${showTime}:00`, timezone)
     const doorsAt = doorsTime ? fromZonedTime(`${dateStr}T${doorsTime}:00`, timezone) : null
+    const endsAt = parseEndsAt(dateStr!, showTime, endTime, timezone)
 
     // Generate slug with collision handling
     const baseSlug = generateSlug(title.trim(), startsAt)
@@ -196,6 +198,7 @@ export default defineEventHandler(async (event) => {
         description: description?.trim() || null,
         startsAt,
         doorsAt,
+        endsAt,
         coverCharge: coverCharge?.trim() || null,
         ageRestriction: finalAgeRestriction,
         ticketUrl: ticketUrl?.trim() || null,
