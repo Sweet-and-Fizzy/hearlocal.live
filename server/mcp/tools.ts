@@ -73,8 +73,8 @@ export function createChatTools(userId?: string) {
           return {
             title: e.title,
             date: formatEventDate(e.startsAt as string),
-            venue: venue?.name || 'TBA',
-            city: venue?.city || '',
+            venue: venue?.name || (e.locationName as string | undefined) || 'TBA',
+            city: venue?.city || (e.locationCity as string | undefined) || '',
             state: venue?.state || '',
             genres: (e.canonicalGenres as string[])?.slice(0, 3) || [],
             coverCharge: e.coverCharge || 'Check venue',
@@ -214,8 +214,8 @@ export function createChatTools(userId?: string) {
         description: event.summary || (event.description as string)?.slice(0, 500) || null,
         date: format(new Date(event.startsAt as string), "EEEE, MMMM d, yyyy 'at' h:mm a"),
         doorsAt: event.doorsAt ? format(new Date(event.doorsAt as string), "h:mm a") : null,
-        venue: venue?.name || 'TBA',
-        address: venue ? `${venue.city || ''}` : null,
+        venue: venue?.name || (event.locationName as string | undefined) || 'TBA',
+        address: venue ? `${venue.city || ''}` : (event.locationCity as string | undefined) || null,
         genres: event.canonicalGenres || [],
         coverCharge: event.coverCharge || 'Check venue',
         ageRestriction: event.ageRestriction || 'ALL_AGES',
@@ -421,8 +421,8 @@ export function createChatTools(userId?: string) {
           return {
             title: e.title,
             date: formatEventDate(e.startsAt.toISOString()),
-            venue: venue?.name || 'TBA',
-            city: venue?.city || '',
+            venue: venue?.name || e.locationName || 'TBA',
+            city: venue?.city || e.locationCity || '',
             url: `/events/${e.slug}`,
             matchReason: [
               ...(matchedArtists.length > 0 ? [`Favorite artist: ${matchedArtists.join(', ')}`] : []),

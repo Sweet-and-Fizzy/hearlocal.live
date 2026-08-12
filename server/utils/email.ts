@@ -625,6 +625,8 @@ interface RecommendationEvent {
     summary: string | null
     eventType: string | null
     imageUrl: string | null
+    locationName?: string | null
+    locationCity?: string | null
     venue: {
       name: string
       city: string | null
@@ -656,6 +658,8 @@ interface UpcomingAttendanceEvent {
   slug: string
   startsAt: Date
   imageUrl: string | null
+  locationName?: string | null
+  locationCity?: string | null
   venue: {
     name: string
     city: string | null
@@ -857,8 +861,9 @@ function renderEventCard(
     minute: '2-digit',
     timeZone: timezone,
   })
-  const venue = event.venue?.name || 'TBA'
-  const city = event.venue?.city ? `, ${event.venue.city}` : ''
+  const venue = event.venue?.name || event.locationName || 'TBA'
+  const cityValue = event.venue?.city || event.locationCity
+  const city = cityValue ? `, ${cityValue}` : ''
 
   // Show AI explanation for non-favorites
   const explanationHtml = !isFavoriteArtist && explanation
@@ -941,8 +946,9 @@ function renderAttendanceCard(
     minute: '2-digit',
     timeZone: timezone,
   })
-  const venue = event.venue?.name || 'TBA'
-  const city = event.venue?.city ? `, ${event.venue.city}` : ''
+  const venue = event.venue?.name || event.locationName || 'TBA'
+  const cityValue = event.venue?.city || event.locationCity
+  const city = cityValue ? `, ${cityValue}` : ''
   const statusIcon = event.status === 'GOING' ? '✓' : '⭐'
   const statusLabel = event.status === 'GOING' ? 'Going' : 'Interested'
   const statusColor = event.status === 'GOING' ? '#059669' : '#d97706'
@@ -1100,7 +1106,7 @@ function generateRecommendationPlainText(
           hour: 'numeric',
           minute: '2-digit',
         })
-        const venue = event.venue?.name || 'TBA'
+        const venue = event.venue?.name || event.locationName || 'TBA'
         const statusIcon = event.status === 'GOING' ? '[Going]' : '[Interested]'
         return `  ${statusIcon} ${event.title}\n    ${date} @ ${time} - ${venue}\n    ${baseUrl}/events/${event.slug}`
       })
@@ -1116,7 +1122,7 @@ function generateRecommendationPlainText(
           month: 'short',
           day: 'numeric',
         })
-        const venue = item.event.venue?.name || 'TBA'
+        const venue = item.event.venue?.name || item.event.locationName || 'TBA'
         const detail = item.event.summary || ''
         return `  - ${item.event.title}\n    ${date} @ ${venue}${detail ? `\n    ${detail}` : ''}\n    ${baseUrl}/events/${item.event.slug}`
       })
@@ -1132,7 +1138,7 @@ function generateRecommendationPlainText(
           month: 'short',
           day: 'numeric',
         })
-        const venue = item.event.venue?.name || 'TBA'
+        const venue = item.event.venue?.name || item.event.locationName || 'TBA'
         const details: string[] = []
         if (item.event.summary) details.push(item.event.summary)
         if (item.explanation) details.push(item.explanation)
@@ -1151,7 +1157,7 @@ function generateRecommendationPlainText(
           month: 'short',
           day: 'numeric',
         })
-        const venue = item.event.venue?.name || 'TBA'
+        const venue = item.event.venue?.name || item.event.locationName || 'TBA'
         const details: string[] = []
         if (item.event.summary) details.push(item.event.summary)
         if (item.explanation) details.push(item.explanation)

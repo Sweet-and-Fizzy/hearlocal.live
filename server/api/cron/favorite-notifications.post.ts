@@ -121,6 +121,8 @@ export default defineEventHandler(async (event) => {
             slug: true,
             startsAt: true,
             imageUrl: true,
+            locationName: true,
+            locationCity: true,
             venue: {
               select: {
                 name: true,
@@ -159,8 +161,8 @@ export default defineEventHandler(async (event) => {
             slug: evt.slug,
             startsAt: evt.startsAt,
             venue: {
-              name: evt.venue?.name || 'TBA',
-              city: evt.venue?.city || null,
+              name: evt.venue?.name || evt.locationName || 'TBA',
+              city: evt.venue?.city || evt.locationCity || null,
             },
             matchedArtists,
             matchedVenue: false,

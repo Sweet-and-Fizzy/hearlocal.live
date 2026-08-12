@@ -56,6 +56,8 @@ interface UpcomingAttendanceEvent {
   slug: string
   startsAt: Date
   imageUrl: string | null
+  locationName?: string | null
+  locationCity?: string | null
   venue: {
     name: string
     city: string | null
@@ -245,6 +247,8 @@ export default defineEventHandler(async (event) => {
                 slug: true,
                 startsAt: true,
                 imageUrl: true,
+                locationName: true,
+                locationCity: true,
                 venue: {
                   select: {
                     name: true,
@@ -273,6 +277,8 @@ export default defineEventHandler(async (event) => {
           slug: a.event.slug,
           startsAt: a.event.startsAt,
           imageUrl: a.event.imageUrl,
+          locationName: a.event.locationName,
+          locationCity: a.event.locationCity,
           venue: a.event.venue,
           status: a.status,
         }))
@@ -307,6 +313,7 @@ export default defineEventHandler(async (event) => {
               title: true,
               slug: true,
               startsAt: true,
+              locationName: true,
               venue: {
                 select: {
                   name: true,
@@ -359,7 +366,7 @@ export default defineEventHandler(async (event) => {
                     hour: 'numeric',
                     minute: '2-digit',
                   }),
-                  venue: e.venue?.name || 'TBA',
+                  venue: e.venue?.name || e.locationName || 'TBA',
                   title: e.title,
                   slug: e.slug,
                   attendanceStatus: attendanceMap.get(e.id),

@@ -95,6 +95,8 @@ export interface ScoredEvent {
     canonicalGenres: string[]
     eventType: string | null
     imageUrl: string | null
+    locationName?: string | null
+    locationCity?: string | null
     venue: {
       id: string
       name: string
@@ -331,6 +333,8 @@ export async function findCandidateEvents(
       eventType: true,
       summary: true,
       imageUrl: true,
+      locationName: true,
+      locationCity: true,
       venue: {
         select: {
           id: true,
@@ -750,6 +754,8 @@ export async function findFavoriteArtistEvents(
       eventType: true,
       summary: true,
       imageUrl: true,
+      locationName: true,
+      locationCity: true,
       venue: {
         select: {
           id: true,
