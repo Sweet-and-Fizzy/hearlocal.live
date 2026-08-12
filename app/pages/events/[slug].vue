@@ -193,6 +193,11 @@ const doorsTime = computed(() => {
   return formatTime(event.value.doorsAt, eventTimezone.value)
 })
 
+const endTime = computed(() => {
+  if (!event.value?.endsAt) return null
+  return formatTime(event.value.endsAt, eventTimezone.value)
+})
+
 // Format age restriction for display
 const formattedAgeRestriction = computed(() => {
   if (!event.value?.ageRestriction) return ''
@@ -711,7 +716,7 @@ useHead({
                   <span
                     v-if="formattedTime"
                     class="font-medium"
-                  >{{ formattedTime }}</span>
+                  >{{ formattedTime }}<template v-if="endTime"> – {{ endTime }}</template></span>
                   <span
                     v-if="doorsTime"
                     class="text-gray-400"
